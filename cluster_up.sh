@@ -19,7 +19,7 @@ function error_exit
 # Check for cluster name as first (and only) arg
 CLUSTER_NAME=${1-jenkins-imager}
 
-NETWORK_NAME="${CLUSTER_NAME}-net"
+# NETWORK_NAME="${CLUSTER_NAME}-net"
 NUM_NODES=3
 MACHINE_TYPE=n1-standard-1
 NETWORK=default
@@ -27,7 +27,7 @@ ZONE=us-central1-f
 
 # Source the config
 . images.cfg
-if ! gcloud container clusters describe ${CLUSTER_NAME} > /dev/null 2>&1; then
+if ! gcloud container clusters describe ${CLUSTER_NAME} --zone $ZONE > /dev/null 2>&1; then
   echo "* Creating Google Container Engine cluster \"${CLUSTER_NAME}\"..."
   # Create cluster
   gcloud container clusters create ${CLUSTER_NAME} \
@@ -48,7 +48,7 @@ echo "done."
 
 echo "Getting Jenkins artifacts"
 if [ ! -d continuous-deployment-on-kubernetes ]; then
-  git clone https://github.com/GoogleCloudPlatform/continuous-deployment-on-kubernetes
+  git clone git@github.com:jnorment-q2/continuous-deployment-on-kubernetes.git
 fi
 
 echo "Deploying Jenkins to Google Container Engine..."
@@ -68,9 +68,13 @@ else
   echo "* Jenkins home disk already exists"
 fi
 
-PASSWORD=`openssl rand -base64 15`; echo "Your Jenkins password is $PASSWORD"; sed -i.bak s#CHANGE_ME#$PASSWORD# jenkins/k8s/options
+# If this is run more than once, the following line is not idempotent ... 
+# PASSWORD=`openssl rand -base64 15`; echo "Your Jenkins password is $PASSWORD"; sed -i.bak s#CHANGE_ME#$PASSWORD# jenkins/k8s/options
 
-kubectl create ns jenkins
+NEW_PASSWORD=`openssl rand -base64 15`; sed -i.bak s#CHANGE_ME#$NEW_PASSWORD# jenkins/k8s/options
+PASSWD="`cat jenkins/k8s/options | cut -d= -f2 | cut -d\  -f1`"
+
+kubectl create ns jenkins 
 kubectl create secret generic jenkins --from-file=jenkins/k8s/options --namespace=jenkins
 kubectl apply -f jenkins/k8s/
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /tmp/tls.key -out /tmp/tls.crt -subj "/CN=jenkins/O=jenkins"
@@ -79,13 +83,12 @@ kubectl apply -f jenkins/k8s/lb/ingress.yaml
 popd
 echo "done."
 
-export NODE_PORT=$(kubectl get --namespace=jenkins -o jsonpath="{.spec.ports[0].nodePort}" services jenkins-ui)
-gcloud compute firewall-rules create allow-130-211-0-0-22 --source-ranges 130.211.0.0/22 --allow tcp:${NODE_PORT} --network ${NETWORK_NAME}
-gcloud compute firewall-rules create allow-ssh-${NETWORK_NAME} --source-ranges 0.0.0.0/0 --allow tcp:22 --network ${NETWORK_NAME}
-
+# export NODE_PORT=$(kubectl get --namespace=jenkins -o jsonpath="{.spec.ports[0].nodePort}" services jenkins-ui)
+# gcloud compute firewall-rules create allow-130-211-0-0-22 --source-ranges 130.211.0.0/22 --allow tcp:${NODE_PORT} --network ${NETWORK_NAME}
+# gcloud compute firewall-rules create allow-ssh-${NETWORK_NAME} --source-ranges 0.0.0.0/0 --allow tcp:22 --network ${NETWORK_NAME}
 
 echo "All resources deployed."
 echo "In a few minutes your loadBalancer will finish provisioning. You can run the following to get its IP address:"
 echo "   kubectl get ingress jenkins --namespace jenkins -o \"jsonpath={.status.loadBalancer.ingress[0].ip}\";echo"
 echo
-echo "Login with user: jenkins and password ${PASSWORD}"
+echo "Login with user: jenkins and password ${PASSWD}"
